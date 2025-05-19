@@ -480,6 +480,8 @@ data:
               source: message
 EOF
                     
+                    kubectl apply -f kubernetes/promtail/promtail-configmap.yaml
+                    
                     # Update Grafana ConfigMap to add Loki datasource
                     echo "Updating Grafana ConfigMap to add Loki datasource..."
                     cat > kubernetes/grafana/grafana-loki-datasource.yaml << EOF
@@ -509,12 +511,9 @@ EOF
                     echo "Waiting for Grafana deployment to be available..."
                     kubectl wait --for=condition=available deployment/grafana -n weather-ops --timeout=60s || true
                     
-                    # Now it's safe to restart Grafana
-                    echo "Restarting Grafana to pick up new datasource..."
-                    kubectl rollout restart deployment/grafana -n weather-ops
-                    
                     # Create dashboard for logs visualization
                     echo "Creating log visualization dashboard..."
+                    mkdir -p kubernetes/grafana/dashboards
                     cat > kubernetes/grafana/dashboards/weather-ops-logs-dashboard.json << 'EOF'
 {
   "annotations": {
@@ -757,7 +756,12 @@ EOF
                     
                     kubectl apply -f kubernetes/grafana/grafana-dashboard-deployment.yaml
                     
-                    # Restart Grafana to pick up the changes
+                    # Wait before attempting to restart Grafana to prevent "already been triggered" errors
+                    echo "Waiting 5 seconds before restarting Grafana..."
+                    sleep 5
+                    
+                    # One single restart at the end after all configurations are applied
+                    echo "Restarting Grafana to pick up all changes..."
                     kubectl rollout restart deployment/grafana -n weather-ops
                     
                     echo "Logging infrastructure deployed successfully!"
