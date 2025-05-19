@@ -1,0 +1,30 @@
+{
+  "dashboard": {
+  
+    "id": null,
+    "title": "Weather_ops Simple Dashboard",
+    "tags": ["weather-ops", "example"],
+    "timezone": "browser",
+    "editable": true,
+    "panels": [
+      {
+        "title": "Weather_ops Backend",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "up{job=~\"weather-ops.*\"}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}

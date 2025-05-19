@@ -733,11 +733,11 @@ spec:
           mountPath: /etc/grafana/provisioning/datasources
         - name: grafana-dashboards-provider
           mountPath: /etc/grafana/provisioning/dashboards
-        - name: grafana-dashboards
-          mountPath: /var/lib/grafana/dashboards/app-dashboard.json
+        - name: weather-ops-dashboard
+          mountPath: /var/lib/grafana/dashboards/weather-ops-dashboard.json
           subPath: weather-ops-dashboard.json
-        - name: grafana-logs-dashboards
-          mountPath: /var/lib/grafana/dashboards/logs-dashboard.json
+        - name: grafana-logs-dashboard
+          mountPath: /var/lib/grafana/dashboards/weather-ops-logs-dashboard.json
           subPath: weather-ops-logs-dashboard.json
       volumes:
       - name: grafana-datasources
@@ -746,10 +746,10 @@ spec:
       - name: grafana-dashboards-provider
         configMap:
           name: grafana-dashboards
-      - name: grafana-dashboards
+      - name: weather-ops-dashboard
         configMap:
-          name: grafana-dashboards-json
-      - name: grafana-logs-dashboards
+          name: weather-ops-dashboard
+      - name: grafana-logs-dashboard
         configMap:
           name: grafana-logs-dashboard
 EOF
@@ -854,7 +854,7 @@ EOF
 apiVersion: v1
 kind: Service
 metadata:
-  name: grafana-service
+  name: grafana
   namespace: weather-ops
 spec:
   selector:
@@ -1435,8 +1435,12 @@ spec:
           mountPath: /etc/grafana/provisioning/datasources
         - name: grafana-dashboards-provider
           mountPath: /etc/grafana/provisioning/dashboards
-        - name: grafana-dashboards
-          mountPath: /var/lib/grafana/dashboards
+        - name: weather-ops-dashboard
+          mountPath: /var/lib/grafana/dashboards/weather-ops-dashboard.json
+          subPath: weather-ops-dashboard.json
+        - name: grafana-logs-dashboard
+          mountPath: /var/lib/grafana/dashboards/weather-ops-logs-dashboard.json
+          subPath: weather-ops-logs-dashboard.json
       volumes:
       - name: grafana-datasources
         configMap:
@@ -1444,13 +1448,16 @@ spec:
       - name: grafana-dashboards-provider
         configMap:
           name: grafana-dashboards
-      - name: grafana-dashboards
+      - name: weather-ops-dashboard
         configMap:
-          name: grafana-dashboards-json
+          name: weather-ops-dashboard
+      - name: grafana-logs-dashboard
+        configMap:
+          name: grafana-logs-dashboard
 EOF
 
-                    # Create a ConfigMap for the dashboard JSON
-                    kubectl create configmap grafana-dashboards-json -n weather-ops --from-file=weather-ops-dashboard.json=kubernetes/grafana/dashboards/weather-ops-dashboard.json --dry-run=client -o yaml | kubectl apply -f -
+                    # Create ConfigMaps for dashboard JSONs with proper names
+                    kubectl create configmap weather-ops-dashboard -n weather-ops --from-file=weather-ops-dashboard.json=kubernetes/grafana/dashboards/weather-ops-dashboard.json --dry-run=client -o yaml | kubectl apply -f -
                     
                     # Apply the updated dashboard configurations
                     kubectl apply -f kubernetes/grafana/grafana-dashboard-configmap.yaml
@@ -1490,7 +1497,7 @@ EOF
 # Start port forwarding for monitoring tools
 nohup kubectl port-forward -n weather-ops svc/prometheus-service 9090:9090 > /tmp/prometheus-port-forward.log 2>&1 &
 echo "Prometheus port forwarding started on port 9090"
-nohup kubectl port-forward -n weather-ops svc/grafana-service 3000:3000 > /tmp/grafana-port-forward.log 2>&1 &
+nohup kubectl port-forward -n weather-ops svc/grafana 3000:3000 > /tmp/grafana-port-forward.log 2>&1 &
 echo "Grafana port forwarding started on port 3000"
 
 # Store the PIDs in a file so they can be terminated later if needed
@@ -1499,7 +1506,7 @@ echo "Grafana PID: $!" >> /tmp/monitoring_port_forward_pids.txt
 
 echo "Port forwarding setup complete!"
 echo "Access Prometheus at: http://localhost:9090"
-echo "Access Grafana at: http://localhost:3000 (default credentials: admin/admin)"
+echo "Access Grafana at: http://localhost:3000 (default credentials: admin/WeatherOps2025Secure!)"
 EOF
                     
                     # Make the script executable
@@ -1508,9 +1515,17 @@ EOF
                     # Execute the port forwarding script
                     /tmp/monitoring_port_forward.sh
                     
+                    # Get Minikube IP for direct NodePort access
+                    MINIKUBE_IP=$(minikube ip)
+                    
                     echo "Monitoring tools are now accessible:"
                     echo "- Prometheus: http://localhost:9090"
-                    echo "- Grafana: http://localhost:3000 (default credentials: admin/admin)"
+                    echo "- Grafana via port-forwarding: http://localhost:3000 (default credentials: admin/WeatherOps2025Secure!)"
+                    echo ""
+                    echo "IMPORTANT: For direct access without port-forwarding:"
+                    echo "- Grafana direct access: http://${MINIKUBE_IP}:30080 (default credentials: admin/WeatherOps2025Secure!)"
+                    echo "- You can view the Weather_ops dashboard at: http://${MINIKUBE_IP}:30080/d/weather-ops/weather-ops-application-dashboard"
+                    echo "- You can view the logs dashboard at: http://${MINIKUBE_IP}:30080/d/weather-ops-logs/weather-ops-logs-dashboard"
                 else
                     echo "Simulating monitoring access setup..."
                     echo "In a real environment, this would set up persistent port forwarding for:"
