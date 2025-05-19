@@ -35,7 +35,7 @@
       },
       "targets": [
         {
-          "expr": "{app_type=\"weather-ops\"}",
+          "expr": "{namespace=\"weather-ops\"}",
           "refId": "A"
         }
       ],
@@ -59,7 +59,7 @@
       },
       "targets": [
         {
-          "expr": "{component=\"frontend\"}",
+          "expr": "{namespace=\"weather-ops\", container_name=\"frontend\"}",
           "refId": "A"
         }
       ],
@@ -83,7 +83,7 @@
       },
       "targets": [
         {
-          "expr": "{component=\"backend\"}",
+          "expr": "{namespace=\"weather-ops\", container_name=\"backend\"}",
           "refId": "A"
         }
       ],
@@ -107,7 +107,7 @@
       },
       "targets": [
         {
-          "expr": "{app_type=\"weather-ops\"} |= \"error\"",
+          "expr": "{namespace=\"weather-ops\"} |= \"error\" or {namespace=\"weather-ops\"} |= \"ERROR\" or {namespace=\"weather-ops\"} |= \"WARNING\" or {namespace=\"weather-ops\"} |= \"warning\"",
           "refId": "A"
         }
       ],
