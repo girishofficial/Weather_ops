@@ -384,7 +384,7 @@ EOF
                     
                     # Create ConfigMap for Promtail
                     echo "Creating Promtail ConfigMap..."
-                    cat > kubernetes/promtail/promtail-configmap.yaml << EOF
+                    cat > kubernetes/promtail/promtail-configmap.yaml << 'EOF'
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -419,7 +419,7 @@ data:
               selector: '{job="container-logs"}'
               stages:
                 - regex:
-                    expression: '^.*/(?P<pod_name>[^_]+)_(?P<namespace>[^_]+)_(?P<container_name>[^-]+)-(?P<container_id>.+)\.log$'
+                    expression: '^.*/(?P<pod_name>[^_]+)_(?P<namespace>[^_]+)_(?P<container_name>[^-]+)-(?P<container_id>.+).log$'
                     source: filename
                 - labels:
                     pod_name:
