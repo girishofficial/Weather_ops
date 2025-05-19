@@ -378,6 +378,10 @@ EOF
                 if [ "$FORCE_K8S_DEPLOY" = "1" ]; then
                     echo "Deploying logging infrastructure to Kubernetes..."
                     
+                    # First deploy Grafana to ensure it exists
+                    echo "Deploying Grafana first..."
+                    kubectl apply -f kubernetes/grafana/grafana-deployment.yaml -f kubernetes/grafana/grafana-service.yaml -n weather-ops || true
+                    
                     # Create Loki deployment
                     echo "Deploying Loki..."
                     kubectl apply -f kubernetes/loki/loki-deployment.yaml
@@ -476,128 +480,6 @@ data:
               source: message
 EOF
                     
-                    # Create RBAC for Promtail
-                    echo "Creating RBAC for Promtail..."
-                    cat > kubernetes/promtail/promtail-rbac.yaml << EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: promtail
-  namespace: weather-ops
-  labels:
-    app: promtail
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: promtail
-  labels:
-    app: promtail
-rules:
-- apiGroups: [""]
-  resources:
-  - namespaces
-  - pods
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: promtail
-  labels:
-    app: promtail
-subjects:
-- kind: ServiceAccount
-  name: promtail
-  namespace: weather-ops
-roleRef:
-  kind: ClusterRole
-  name: promtail
-  apiGroup: rbac.authorization.k8s.io
-EOF
-                    
-                    # Create Promtail DaemonSet
-                    echo "Creating Promtail DaemonSet..."
-                    cat > kubernetes/promtail/promtail-deployment.yaml << EOF
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: promtail
-  namespace: weather-ops
-spec:
-  selector:
-    matchLabels:
-      app: promtail
-  template:
-    metadata:
-      labels:
-        app: promtail
-    spec:
-      serviceAccountName: promtail
-      containers:
-        - name: promtail
-          image: grafana/promtail:2.8.3
-          args:
-            - -config.file=/etc/promtail/promtail.yaml
-          env:
-            - name: HOSTNAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-          volumeMounts:
-            - name: config
-              mountPath: /etc/promtail
-            - name: varlog
-              mountPath: /var/log
-              readOnly: true
-            - name: varlibdockercontainers
-              mountPath: /var/lib/docker/containers
-              readOnly: true
-            - name: positions
-              mountPath: /positions
-          ports:
-            - containerPort: 9080
-              name: http-metrics
-          resources:
-            limits:
-              cpu: 200m
-              memory: 128Mi
-            requests:
-              cpu: 100m
-              memory: 64Mi
-          securityContext:
-            readOnlyRootFilesystem: false
-            runAsUser: 0
-      volumes:
-        - name: config
-          configMap:
-            name: promtail-config
-        - name: varlog
-          hostPath:
-            path: /var/log
-        - name: varlibdockercontainers
-          hostPath:
-            path: /var/lib/docker/containers
-        - name: positions
-          emptyDir: {}
-EOF
-                    
-                    # Apply Promtail components
-                    echo "Applying Promtail RBAC..."
-                    kubectl apply -f kubernetes/promtail/promtail-rbac.yaml
-                    
-                    echo "Applying Promtail ConfigMap..."
-                    kubectl apply -f kubernetes/promtail/promtail-configmap.yaml
-                    
-                    echo "Applying Promtail DaemonSet..."
-                    kubectl apply -f kubernetes/promtail/promtail-deployment.yaml
-                    
                     # Update Grafana ConfigMap to add Loki datasource
                     echo "Updating Grafana ConfigMap to add Loki datasource..."
                     cat > kubernetes/grafana/grafana-loki-datasource.yaml << EOF
@@ -622,6 +504,13 @@ data:
 EOF
                     
                     kubectl apply -f kubernetes/grafana/grafana-loki-datasource.yaml
+                    
+                    # Wait a moment for Grafana deployment to be ready before trying to restart it
+                    echo "Waiting for Grafana deployment to be available..."
+                    kubectl wait --for=condition=available deployment/grafana -n weather-ops --timeout=60s || true
+                    
+                    # Now it's safe to restart Grafana
+                    echo "Restarting Grafana to pick up new datasource..."
                     kubectl rollout restart deployment/grafana -n weather-ops
                     
                     # Create dashboard for logs visualization
