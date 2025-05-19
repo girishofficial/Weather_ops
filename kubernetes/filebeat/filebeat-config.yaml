@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: weather-ops
+  labels:
+    app: filebeat
+data:
+  filebeat.yml: |-
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*weather-ops*.log
+      processors:
+        - add_kubernetes_metadata:
+            host: ${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+      # Exclude filebeat's own logs to avoid recursion
+      exclude_files: ['filebeat.*']
+
+    processors:
+      - add_cloud_metadata: {}
+      - add_host_metadata: {}
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+          matchers:
+          - logs_path:
+              logs_path: "/var/log/containers/"
+      # Decode JSON logs for structured output
+      - decode_json_fields:
+          fields: ["message"]
+          target: "json"
+          overwrite_keys: true
+          process_array: false
+          max_depth: 2
+      # Add labels to differentiate between frontend and backend logs
+      - add_fields:
+          target: ''
+          fields:
+            app_type: 'weather-ops'
+
+    # Output configuration for Loki using HTTP output
+    output.console:
+      pretty: true
+      
+    # Configure another output to specifically send logs to Loki via a local file
+    output.file:
+      path: "/dev/stdout"
+      filename: "filebeat"
+      rotate_every_kb: 10000
+      number_of_files: 5
+      
+    # Required setting to log Filebeat's internal logs to stderr
+    logging.level: info
+    logging.to_stderr: true

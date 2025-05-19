@@ -371,6 +371,523 @@ EOF
             }
         }
         
+        stage('Deploy Logging Infrastructure') {
+            steps {
+                echo 'Setting up logging infrastructure with Loki and Promtail...'
+                sh '''
+                if [ "$FORCE_K8S_DEPLOY" = "1" ]; then
+                    echo "Deploying logging infrastructure to Kubernetes..."
+                    
+                    # Create Loki deployment
+                    echo "Deploying Loki..."
+                    kubectl apply -f kubernetes/loki/loki-deployment.yaml
+                    
+                    # Create ConfigMap for Promtail
+                    echo "Creating Promtail ConfigMap..."
+                    cat > kubernetes/promtail/promtail-configmap.yaml << EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: weather-ops
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /positions/positions.yaml
+
+    clients:
+      - url: http://loki.weather-ops.svc.cluster.local:3100/loki/api/v1/push
+
+    scrape_configs:
+      # This scrape config gathers all container logs from the node
+      - job_name: kubernetes-pods-container-logs
+        static_configs:
+        - targets:
+            - localhost
+          labels:
+            job: container-logs
+            app_type: weather-ops
+            __path__: /var/log/containers/*weather-ops*.log
+
+        pipeline_stages:
+          - docker: {}
+          - match:
+              selector: '{job="container-logs"}'
+              stages:
+                - regex:
+                    expression: '^.*/(?P<pod_name>[^_]+)_(?P<namespace>[^_]+)_(?P<container_name>[^-]+)-(?P<container_id>.+)\.log$'
+                    source: filename
+                - labels:
+                    pod_name:
+                    namespace:
+                    container_name:
+                    container_id:
+                - output:
+                    source: message
+      
+      # Specific job for frontend component
+      - job_name: frontend-logs
+        static_configs:
+        - targets:
+            - localhost
+          labels:
+            job: frontend-logs
+            app_type: weather-ops
+            component: frontend
+            __path__: /var/log/containers/*frontend*.log
+
+        pipeline_stages:
+          - docker: {}
+          - json:
+              expressions:
+                level: level
+                message: message
+                timestamp: timestamp
+          - labels:
+              level:
+          - output:
+              source: message
+      
+      # Specific job for backend component
+      - job_name: backend-logs
+        static_configs:
+        - targets:
+            - localhost
+          labels:
+            job: backend-logs
+            app_type: weather-ops
+            component: backend
+            __path__: /var/log/containers/*backend*.log
+
+        pipeline_stages:
+          - docker: {}
+          - json:
+              expressions:
+                level: level
+                message: message
+                timestamp: timestamp
+          - labels:
+              level:
+          - output:
+              source: message
+EOF
+                    
+                    # Create RBAC for Promtail
+                    echo "Creating RBAC for Promtail..."
+                    cat > kubernetes/promtail/promtail-rbac.yaml << EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: weather-ops
+  labels:
+    app: promtail
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+rules:
+- apiGroups: [""]
+  resources:
+  - namespaces
+  - pods
+  - nodes
+  verbs:
+  - get
+  - watch
+  - list
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+subjects:
+- kind: ServiceAccount
+  name: promtail
+  namespace: weather-ops
+roleRef:
+  kind: ClusterRole
+  name: promtail
+  apiGroup: rbac.authorization.k8s.io
+EOF
+                    
+                    # Create Promtail DaemonSet
+                    echo "Creating Promtail DaemonSet..."
+                    cat > kubernetes/promtail/promtail-deployment.yaml << EOF
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: weather-ops
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      containers:
+        - name: promtail
+          image: grafana/promtail:2.8.3
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: positions
+              mountPath: /positions
+          ports:
+            - containerPort: 9080
+              name: http-metrics
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: positions
+          emptyDir: {}
+EOF
+                    
+                    # Apply Promtail components
+                    echo "Applying Promtail RBAC..."
+                    kubectl apply -f kubernetes/promtail/promtail-rbac.yaml
+                    
+                    echo "Applying Promtail ConfigMap..."
+                    kubectl apply -f kubernetes/promtail/promtail-configmap.yaml
+                    
+                    echo "Applying Promtail DaemonSet..."
+                    kubectl apply -f kubernetes/promtail/promtail-deployment.yaml
+                    
+                    # Update Grafana ConfigMap to add Loki datasource
+                    echo "Updating Grafana ConfigMap to add Loki datasource..."
+                    cat > kubernetes/grafana/grafana-loki-datasource.yaml << EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: weather-ops
+data:
+  datasources.yaml: |-
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus-service:9090
+      access: proxy
+      isDefault: true
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+      access: proxy
+EOF
+                    
+                    kubectl apply -f kubernetes/grafana/grafana-loki-datasource.yaml
+                    kubectl rollout restart deployment/grafana -n weather-ops
+                    
+                    # Create dashboard for logs visualization
+                    echo "Creating log visualization dashboard..."
+                    cat > kubernetes/grafana/dashboards/weather-ops-logs-dashboard.json << 'EOF'
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{app_type=\"weather-ops\"}",
+          "refId": "A"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "All Weather_ops Application Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{component=\"frontend\"}",
+          "refId": "A"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Frontend Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 6,
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{component=\"backend\"}",
+          "refId": "A"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Backend Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 8,
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{app_type=\"weather-ops\"} |= \"error\"",
+          "refId": "A"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Error Logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 22,
+  "style": "dark",
+  "tags": ["logs", "weather-ops"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "",
+  "title": "Weather_ops Logs Dashboard",
+  "uid": "weather-ops-logs",
+  "version": 1
+}
+EOF
+
+                    # Add logs dashboard to Grafana
+                    kubectl create configmap grafana-logs-dashboard -n weather-ops --from-file=weather-ops-logs-dashboard.json=kubernetes/grafana/dashboards/weather-ops-logs-dashboard.json --dry-run=client -o yaml | kubectl apply -f -
+                    
+                    # Update the Grafana dashboard provider to include the logs dashboard
+                    cat > kubernetes/grafana/grafana-dashboard-configmap.yaml << EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: weather-ops
+data:
+  dashboard-provider.yaml: |-
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      options:
+        path: /var/lib/grafana/dashboards
+EOF
+                    
+                    kubectl apply -f kubernetes/grafana/grafana-dashboard-configmap.yaml
+                    
+                    # Update the Grafana deployment to mount all dashboards
+                    cat > kubernetes/grafana/grafana-dashboard-deployment.yaml << EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: weather-ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+          name: grafana
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboards-provider
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards/app-dashboard.json
+          subPath: weather-ops-dashboard.json
+        - name: grafana-logs-dashboards
+          mountPath: /var/lib/grafana/dashboards/logs-dashboard.json
+          subPath: weather-ops-logs-dashboard.json
+      volumes:
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboards-provider
+        configMap:
+          name: grafana-dashboards
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards-json
+      - name: grafana-logs-dashboards
+        configMap:
+          name: grafana-logs-dashboard
+EOF
+                    
+                    kubectl apply -f kubernetes/grafana/grafana-dashboard-deployment.yaml
+                    
+                    # Restart Grafana to pick up the changes
+                    kubectl rollout restart deployment/grafana -n weather-ops
+                    
+                    echo "Logging infrastructure deployed successfully!"
+                    echo "Access the logs dashboard at: http://localhost:3000/d/weather-ops-logs/weather-ops-logs-dashboard"
+                    echo "(after setting up port-forwarding)"
+                    echo "You can view logs by component (frontend/backend) or search for specific log patterns"
+                    
+                else
+                    echo "Simulating logging infrastructure deployment..."
+                    echo "In a real environment, this would:"
+                    echo "- Deploy Loki as a log aggregation backend"
+                    echo "- Configure Promtail to process and forward logs to Loki"
+                    echo "- Set up Grafana dashboards for log visualization"
+                    echo "- Allow filtering logs by component (frontend/backend) and searching for specific patterns"
+                fi
+                '''
+            }
+        }
+        
         stage('Deploy Grafana Dashboard') {
             steps {
                 echo 'Setting up Grafana dashboards...'

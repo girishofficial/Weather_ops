@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: weather-ops
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /positions/positions.yaml
+
+    clients:
+      - url: http://loki.weather-ops.svc.cluster.local:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - weather-ops
+        pipeline_stages:
+          - docker: {}
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_pod_label_app
+            target_label: app
+          - source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container
+          - source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: pod
+          - source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: node
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: app_type
+            regex: weather-ops
+            replacement: weather-ops
+      
+      - job_name: kubernetes-pods-direct
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - weather-ops
+        pipeline_stages:
+          - docker: {}
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_pod_annotation_prometheus_io_scrape
+            action: keep
+            regex: true
+          - source_labels:
+              - __meta_kubernetes_pod_container_name
+            action: replace
+            target_label: container_name
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels:
+              - __meta_kubernetes_pod_name
+            action: replace
+            target_label: pod_name
+          - source_labels:
+              - __meta_kubernetes_pod_container_id
+            regex: (?:.*://)?(.*)
+            action: replace
+            target_label: container_id
+            replacement: $1
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            action: replace
+            target_label: node_name
+          - source_labels:
+              - __meta_kubernetes_namespace
+            action: replace
+            target_label: namespace
+
+      - job_name: kubernetes-pods-container-logs
+        static_configs:
+        - targets:
+            - localhost
+          labels:
+            job: container-logs
+            app_type: weather-ops
+            __path__: /var/log/containers/*weather-ops*.log
+
+        pipeline_stages:
+          - docker: {}
+          - match:
+              selector: '{job="container-logs"}'
+              stages:
+                - regex:
+                    expression: '^.*/(?P<pod_name>[^_]+)_(?P<namespace>[^_]+)_(?P<container_name>[^-]+)-(?P<container_id>.+)\.log$'
+                    source: filename
+                - labels:
+                    pod_name:
+                    namespace:
+                    container_name:
+                    container_id:
+                - output:
+                    source: message
+      
+      - job_name: frontend-logs
+        static_configs:
+        - targets:
+            - localhost
+          labels:
+            job: frontend-logs
+            app_type: weather-ops
+            component: frontend
+            __path__: /var/log/containers/*frontend*.log
+
+        pipeline_stages:
+          - docker: {}
+          - json:
+              expressions:
+                level: level
+                message: message
+                timestamp: timestamp
+          - labels:
+              level:
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+          - output:
+              source: message
+      
+      - job_name: backend-logs
+        static_configs:
+        - targets:
+            - localhost
+          labels:
+            job: backend-logs
+            app_type: weather-ops
+            component: backend
+            __path__: /var/log/containers/*backend*.log
+
+        pipeline_stages:
+          - docker: {}
+          - json:
+              expressions:
+                level: level
+                message: message
+                timestamp: timestamp
+          - labels:
+              level:
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+          - output:
+              source: message

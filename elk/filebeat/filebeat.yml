@@ -1,0 +1,40 @@
+filebeat.inputs:
+- type: container
+  paths:
+    - /var/log/containers/*weather-ops*.log
+  processors:
+    - add_kubernetes_metadata:
+        host: ${NODE_NAME}
+        matchers:
+        - logs_path:
+            logs_path: "/var/log/containers/"
+
+processors:
+  - add_cloud_metadata: ~
+  - add_host_metadata: ~
+  - add_kubernetes_metadata:
+      host: ${NODE_NAME}
+      matchers:
+      - logs_path:
+          logs_path: "/var/log/containers/"
+  # Decode JSON logs for structured output
+  - decode_json_fields:
+      fields: ["message"]
+      target: "json"
+      overwrite_keys: true
+      process_array: false
+      max_depth: 2
+
+output.file:
+  path: "/tmp/filebeat-logs"
+  filename: weather-ops-logs
+  rotate_every_kb: 10000
+  number_of_files: 5
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
