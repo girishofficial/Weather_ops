@@ -68,10 +68,10 @@ pipeline {
                 sh 'echo "Validating data integrity..."'
                 sh '''
                 # Make the validation script executable
-                chmod +x ./validate_data.py
+                chmod +x ./scripts/validation/validate_data.py
                 
                 # Execute the validation script using the Jenkins virtual environment
-                jenkins_venv/bin/python ./validate_data.py
+                jenkins_venv/bin/python ./scripts/validation/validate_data.py
                 '''
             }
         }
@@ -118,9 +118,9 @@ pipeline {
                 sh 'echo "Deploying application..."'
                 sh '''
                     # Make the deployment script executable
-                    chmod +x ./deploy_docker_compose.sh
+                    chmod +x ./scripts/deployment/deploy_docker_compose.sh
                     # Execute the script to deploy using Docker Compose
-                    ./deploy_docker_compose.sh
+                    ./scripts/deployment/deploy_docker_compose.sh
                 '''
             }
         }
@@ -130,13 +130,13 @@ pipeline {
                 echo 'Setting up Kubernetes environment...'
                 sh '''
                     # Make the Kubernetes setup script executable
-                    chmod +x ./setup_kubernetes_env.sh
+                    chmod +x ./scripts/setup/setup_kubernetes_env.sh
                     
                     # Execute the script to setup Kubernetes environment
-                    ./setup_kubernetes_env.sh
+                    ./scripts/setup/setup_kubernetes_env.sh
                     
                     # Make deployment script executable
-                    chmod +x ./deploy_kubernetes.sh
+                    chmod +x ./scripts/deployment/deploy_kubernetes.sh
                 '''
             }
         }
@@ -147,7 +147,7 @@ pipeline {
                 sh '''
                 if [ "$FORCE_K8S_DEPLOY" = "1" ]; then
                     echo "Forcing actual deployment to Kubernetes..."
-                    ./deploy_kubernetes.sh
+                    ./scripts/deployment/deploy_kubernetes.sh
                 else
                     echo "Simulating Kubernetes deployment..."
                     echo "This is a simulated Kubernetes deployment environment."
@@ -210,9 +210,9 @@ pipeline {
                 sh '''
                 if [ "$FORCE_K8S_DEPLOY" = "1" ]; then
                     # Make the logging infrastructure script executable
-                    chmod +x ./deploy_logging_infra.sh
+                    chmod +x ./scripts/deployment/deploy_logging_infra.sh
                     # Execute the script to deploy logging infrastructure
-                    ./deploy_logging_infra.sh
+                    ./scripts/deployment/deploy_logging_infra.sh
                 else
                     echo "Simulating logging infrastructure deployment..."
                     echo "In a real environment, this would:"
@@ -263,9 +263,9 @@ pipeline {
                 echo 'Creating custom dashboards for Weather_ops...'
                 sh '''
                 # Make the dashboard creation script executable
-                chmod +x ./create_dashboards.sh
+                chmod +x ./scripts/deployment/create_dashboards.sh
                 # Execute the script passing the FORCE_K8S_DEPLOY parameter
-                ./create_dashboards.sh $FORCE_K8S_DEPLOY
+                ./scripts/deployment/create_dashboards.sh $FORCE_K8S_DEPLOY
                 '''
             }
         }
@@ -276,9 +276,9 @@ pipeline {
                 sh '''
                 if [ "$FORCE_K8S_DEPLOY" = "1" ]; then
                     # Make the monitoring access script executable
-                    chmod +x ./setup_monitoring_access.sh
+                    chmod +x ./scripts/setup/setup_monitoring_access.sh
                     # Execute the script to setup monitoring access
-                    ./setup_monitoring_access.sh
+                    ./scripts/setup/setup_monitoring_access.sh
                 else
                     echo "Simulating monitoring access setup..."
                     echo "In a real environment, this would set up persistent port forwarding for:"
