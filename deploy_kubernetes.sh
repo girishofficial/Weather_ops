@@ -71,7 +71,8 @@ kubectl apply -f kubernetes/namespace.yaml
 # Check for and clean up any PVs in Released state
 echo "Checking for storage resources that need cleanup..."
 
-PV_STATUS=$(kubectl get pv weather-ops-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")if [ "$PV_STATUS" == "Released" ]; then
+PV_STATUS=$(kubectl get pv weather-ops-pv -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
+if [ "$PV_STATUS" == "Released" ]; then
     echo "Found PV 'weather-ops-pv' in Released state, cleaning up..."
     kubectl delete pv weather-ops-pv
     echo "Waiting for PV deletion to complete..."
