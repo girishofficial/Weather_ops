@@ -67,30 +67,11 @@ pipeline {
             steps {
                 sh 'echo "Validating data integrity..."'
                 sh '''
-                jenkins_venv/bin/python -c "
-import pandas as pd
-import os
-
-# Check if data files exist
-data_paths = ['data/raw_weather.csv', 'data/cleaned_weather.csv']
-for path in data_paths:
-    if not os.path.exists(path):
-        print(f'Error: Data file {path} not found')
-        exit(1)
-
-# Validate cleaned data
-try:
-    df = pd.read_csv('data/cleaned_weather.csv')
-    # Check for null values in critical columns
-    critical_columns = ['tavg', 'tmin', 'tmax', 'prcp', 'wspd']
-    for col in critical_columns:
-        if col in df.columns and df[col].isnull().sum() > 0:
-            print(f'Warning: {df[col].isnull().sum()} null values found in {col}')
-    print('Data validation completed successfully')
-except Exception as e:
-    print(f'Error during data validation: {str(e)}')
-    exit(1)
-"
+                # Make the validation script executable
+                chmod +x ./validate_data.py
+                
+                # Execute the validation script using the Jenkins virtual environment
+                jenkins_venv/bin/python ./validate_data.py
                 '''
             }
         }
@@ -369,45 +350,10 @@ EOF
                 echo 'Setting up persistent access to monitoring tools...'
                 sh '''
                 if [ "$FORCE_K8S_DEPLOY" = "1" ]; then
-                    # Kill any existing port-forwarding processes
-                    pkill -f "kubectl port-forward.*prometheus" || true
-                    pkill -f "kubectl port-forward.*grafana" || true
-                    
-                    # Create a simple script to maintain port forwarding
-                    cat > /tmp/monitoring_port_forward.sh << 'EOF'
-#!/bin/bash
-# Start port forwarding for monitoring tools
-nohup kubectl port-forward -n weather-ops svc/prometheus-service 9090:9090 > /tmp/prometheus-port-forward.log 2>&1 &
-echo "Prometheus port forwarding started on port 9090"
-nohup kubectl port-forward -n weather-ops svc/grafana 3000:3000 > /tmp/grafana-port-forward.log 2>&1 &
-echo "Grafana port forwarding started on port 3000"
-
-# Store the PIDs in a file so they can be terminated later if needed
-echo "Prometheus PID: $!" > /tmp/monitoring_port_forward_pids.txt
-echo "Grafana PID: $!" >> /tmp/monitoring_port_forward_pids.txt
-
-echo "Port forwarding setup complete!"
-echo "Access Prometheus at: http://localhost:9090"
-echo "Access Grafana at: http://localhost:3000 (default credentials: admin/WeatherOps2025Secure!)"
-EOF
-                    
-                    # Make the script executable
-                    chmod +x /tmp/monitoring_port_forward.sh
-                    
-                    # Execute the port forwarding script
-                    /tmp/monitoring_port_forward.sh
-                    
-                    # Get Minikube IP for direct NodePort access
-                    MINIKUBE_IP=$(minikube ip)
-                    
-                    echo "Monitoring tools are now accessible:"
-                    echo "- Prometheus: http://localhost:9090"
-                    echo "- Grafana via port-forwarding: http://localhost:3000 (default credentials: admin/WeatherOps2025Secure!)"
-                    echo ""
-                    echo "IMPORTANT: For direct access without port-forwarding:"
-                    echo "- Grafana direct access: http://${MINIKUBE_IP}:30080 (default credentials: admin/WeatherOps2025Secure!)"
-                    echo "- You can view the Weather_ops dashboard at: http://${MINIKUBE_IP}:30080/d/weather-ops/weather-ops-application-dashboard"
-                    echo "- You can view the logs dashboard at: http://${MINIKUBE_IP}:30080/d/weather-ops-logs/weather-ops-logs-dashboard"
+                    # Make the monitoring access script executable
+                    chmod +x ./setup_monitoring_access.sh
+                    # Execute the script to setup monitoring access
+                    ./setup_monitoring_access.sh
                 else
                     echo "Simulating monitoring access setup..."
                     echo "In a real environment, this would set up persistent port forwarding for:"
