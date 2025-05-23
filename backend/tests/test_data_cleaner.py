@@ -32,7 +32,6 @@ class TestDataCleaner(unittest.TestCase):
         # Setup the mock
         mock_read_csv.return_value = self.sample_data
         
-        # Import data_cleaner which will use our mocked functions
         import data_cleaner
         
         # Verify read_csv was called with the correct path

@@ -7,7 +7,7 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: weather-ops.local  # You can change this to your preferred domain
+  - host: weather-ops.local  
     http:
       paths:
       - path: /api

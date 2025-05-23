@@ -118,9 +118,8 @@ def load_model_from_backend():
         logger.error(f"Error loading model from API: {str(e)}", exc_info=True)
         raise Exception(f"Failed to fetch model from backend: {str(e)}")
 
-# Load data and model with error handling
 try:
-    # Always try to get data from backend API first
+
     try:
         response = requests.get(f"{BACKEND_URL}/data/cleaned")
         if response.status_code == 200:
@@ -146,20 +145,20 @@ try:
     # Always try to get model from backend API first for most up-to-date model
     try:
         model = load_model_from_backend()
-        st.success("✅ Using latest model from backend API")
+        st.success("Using latest model from backend API")
     except Exception as e:
         logger.warning(f"Could not load model from API, falling back to local model: {str(e)}")
         # Fallback to local model
         if os.path.exists(MODEL_PATH):
             with open(MODEL_PATH, "rb") as f:
                 model = pickle.load(f)
-                st.warning("⚠️ Using local model (may not be the most recent)")
+                st.warning("Using local model (may not be the most recent)")
         else:
             alt_model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "backend/model.pkl")
             if os.path.exists(alt_model_path):
                 with open(alt_model_path, "rb") as f:
                     model = pickle.load(f)
-                    st.warning("⚠️ Using local model (may not be the most recent)")
+                    st.warning("Using local model (may not be the most recent)")
             else:
                 logger.error("Could not load model from any source")
                 raise Exception("Could not find model.pkl in any location")
@@ -167,7 +166,7 @@ try:
     logger.info("Data and model loaded successfully")
 except Exception as e:
     logger.error(f"Error loading data or model: {str(e)}", exc_info=True)
-    st.error(f"❌ Error loading data or model: {str(e)}")
+    st.error(f"Error loading data or model: {str(e)}")
     st.stop()
 
 # Weather description helper
@@ -230,7 +229,7 @@ try:
     logger.info("Predictions generated successfully")
 except Exception as e:
     logger.error(f"Error generating predictions: {str(e)}", exc_info=True)
-    st.error(f"❌ Error generating predictions: {str(e)}")
+    st.error(f" Error generating predictions: {str(e)}")
     st.stop()
 
 # Layout: 3 columns for 3 days
@@ -255,35 +254,29 @@ if st.sidebar.button("Predict from custom data"):
         # Always try to get the latest model for custom predictions
         try:
             latest_model = load_model_from_backend()
-            st.sidebar.success("✅ Using latest model from backend API")
+            st.sidebar.success("Using latest model from backend API")
         except:
             latest_model = model
-            st.sidebar.warning("⚠️ Using cached model for prediction")
+            st.sidebar.warning("Using cached model for prediction")
             
         input_dict = {}
 
-        # Add tavg lags
         for i in range(1, 4):
             input_dict[f"tavg_t-{i}"] = [custom_input[-i]]
 
-        # Calculate reasonable values for other parameters based on the temperature
-        # This ensures predictions change when temperature inputs change
         for i in range(1, 4):
             temp = custom_input[-i]
-            # Generate sensible tmin/tmax based on the average temperature
-            input_dict[f"tmin_t-{i}"] = [temp - 5.0]  # Min temp typically 5 degrees below avg
-            input_dict[f"tmax_t-{i}"] = [temp + 5.0]  # Max temp typically 5 degrees above avg
-            
-            # Precipitation more likely with lower temps (simplified relationship)
+            input_dict[f"tmin_t-{i}"] = [temp - 5.0]  
+            input_dict[f"tmax_t-{i}"] = [temp + 5.0]  
             if temp < 20:
-                input_dict[f"prcp_t-{i}"] = [5.0]  # Some precipitation for cooler temps
+                input_dict[f"prcp_t-{i}"] = [5.0]  
             else:
-                input_dict[f"prcp_t-{i}"] = [0.0]  # Less precipitation for warmer temps
+                input_dict[f"prcp_t-{i}"] = [0.0] 
                 
-            # Wind speed - just a simple value for now
+            
             input_dict[f"wspd_t-{i}"] = [10.0]
 
-        # Fill any remaining missing features required by the model
+
         for col in latest_model.feature_names_in_:
             if col not in input_dict:
                 input_dict[col] = [0.0]
@@ -298,7 +291,6 @@ if st.sidebar.button("Predict from custom data"):
         st.markdown(f"<div class='emoji'>{desc}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='big-font'>Predicted tavg: {pred:.2f} °C</div>", unsafe_allow_html=True)
         
-        # Add debugging information if needed
         with st.expander("Debug Information"):
             st.write("Input features for prediction:")
             st.dataframe(X_manual)
@@ -306,11 +298,11 @@ if st.sidebar.button("Predict from custom data"):
         logger.info("Manual prediction generated successfully")
     except Exception as e:
         logger.error(f"Error generating manual prediction: {str(e)}", exc_info=True)
-        st.error(f"❌ Error generating manual prediction: {str(e)}")
+        st.error(f"Error generating manual prediction: {str(e)}")
 
 # Sidebar section for API interaction
 st.sidebar.markdown("---")
-st.sidebar.markdown("## 📤 Retrain Model with New Data")
+st.sidebar.markdown("## Retrain Model with New Data")
 uploaded_file = st.sidebar.file_uploader("Upload a CSV file with new weather data", type="csv")
 
 if uploaded_file is not None and st.sidebar.button("Retrain Model"):
@@ -321,10 +313,9 @@ if uploaded_file is not None and st.sidebar.button("Retrain Model"):
         response = requests.post(api_url, files={"file": (uploaded_file.name, uploaded_file.getvalue())})
 
         if response.status_code == 200:
-            st.sidebar.success("✅ Data uploaded and retraining started!")
+            st.sidebar.success("Data uploaded and retraining started!")
             logger.info("Data uploaded and retraining started successfully")
             
-            # Add a slight delay to ensure the model is fully retrained
             progress_bar = st.sidebar.progress(0)
             status_text = st.sidebar.empty()
             for i in range(101):
@@ -335,11 +326,9 @@ if uploaded_file is not None and st.sidebar.button("Retrain Model"):
             # Fetch the newly trained model from the backend
             try:
                 status_text.text("Fetching new model...")
-                # Clear Streamlit's cache to ensure we get fresh data
                 st.cache_data.clear()
                 st.cache_resource.clear()
                 
-                # Force reload of data as well
                 try:
                     response_data = requests.get(f"{BACKEND_URL}/data/cleaned")
                     if response_data.status_code == 200:
@@ -352,7 +341,6 @@ if uploaded_file is not None and st.sidebar.button("Retrain Model"):
                 # Get the updated model
                 model = load_model_from_backend()
                 
-                # Save the new model locally if we have write access
                 try:
                     with open(MODEL_PATH, 'wb') as f:
                         pickle.dump(model, f)
@@ -361,9 +349,8 @@ if uploaded_file is not None and st.sidebar.button("Retrain Model"):
                     logger.warning("Could not save model locally, but still using it for predictions")
                 
                 status_text.text("Model updated successfully!")
-                st.sidebar.success("✅ New model is now being used for predictions!")
+                st.sidebar.success("New model is now being used for predictions!")
                 
-                # Force complete page reload to use the new model for all predictions
                 st.rerun()
                 
             except Exception as e:
@@ -371,7 +358,7 @@ if uploaded_file is not None and st.sidebar.button("Retrain Model"):
                 st.sidebar.warning("Model was retrained but couldn't be loaded automatically. Please refresh the page.")
         else:
             logger.warning(f"Failed to upload data: {response.json().get('detail', 'Unknown error')}")
-            st.sidebar.error(f"❌ Failed: {response.json().get('detail', 'Unknown error')}")
+            st.sidebar.error(f"Failed: {response.json().get('detail', 'Unknown error')}")
     except Exception as e:
         logger.error(f"Error contacting API: {str(e)}", exc_info=True)
-        st.sidebar.error(f"❌ Error contacting API: {str(e)}")
+        st.sidebar.error(f"Error contacting API: {str(e)}")
